@@ -98,7 +98,7 @@ class AudioManager:
         if music.exists():
             try:
                 pygame.mixer.music.load(str(music))
-                pygame.mixer.music.set_volume(0.20)
+                pygame.mixer.music.set_volume(0.45)
                 pygame.mixer.music.play(-1)
             except pygame.error:
                 pass
@@ -121,7 +121,8 @@ class AudioManager:
 
     def set_peacefulness(self, progress: float) -> None:
         if self.enabled and pygame.mixer.music.get_busy():
-            pygame.mixer.music.set_volume(0.16 + 0.18 * max(0.0, min(1.0, progress)))
+            # Ambient gently rises from 0.42 -> 0.65 as garden connects
+            pygame.mixer.music.set_volume(0.42 + 0.23 * max(0.0, min(1.0, progress)))
 
     def play_level_narration(self, level_index: int, volume: float = 0.55) -> None:
         """Play per-level narration if available. Missing audio stays silent."""
@@ -252,6 +253,9 @@ class Particle:
         surface.blit(rotated, rotated.get_rect(center=self.pos), special_flags=pygame.BLEND_PREMULTIPLIED)
 
 
+def reversed_x(angle_deg: float) -> float:
+    return Vec2(1, 0).rotate(angle_deg).x
+
 class Tile:
     """A rotatable neural-root tile."""
 
@@ -297,6 +301,8 @@ class Tile:
             return
         normal = Vec2(-direction.y, direction.x).normalize()
         sway = normal * (2.2 * abs(Vec2(1, 0).rotate(glow_phase * 50 + self.row * 23 + self.col * 17).x))
+        def reversed_x(angle):
+            return Vec2(1, 0).rotate(angle).x
         points: list[Vec2] = []
         for i in range(9):
             t = i / 8
@@ -316,12 +322,19 @@ class Tile:
             pygame.draw.circle(surface, petal_color, pos, max(2, radius // 2))
         pygame.draw.circle(surface, WARM_GOLD, center, max(2, radius // 3))
 
-    def draw(self, surface: pygame.Surface, rect: pygame.Rect, glow_phase: float) -> None:
+    def draw(self, surface: pygame.Surface, rect: pygame.Rect, glow_phase: float, hint_highlight: bool = False) -> None:
         base_color = TILE_HOVER if self.hover else TILE_DARK
         if self.connected:
             base_color = (22, 70, 72)
         pygame.draw.rect(surface, base_color, rect, border_radius=16)
-        pygame.draw.rect(surface, (35, 96, 98), rect, width=1, border_radius=16)
+        
+        # Draw border (orange if hint highlighting, else standard teal)
+        if hint_highlight:
+            # Pulsing orange border to highlight wrong rotation
+            pulse = 180 + 75 * abs(reversed_x(glow_phase * 60 + self.row * 20 + self.col * 20))
+            pygame.draw.rect(surface, (int(pulse), 120, 20), rect, width=3, border_radius=16)
+        else:
+            pygame.draw.rect(surface, (35, 96, 98), rect, width=1, border_radius=16)
 
         center = Vec2(rect.center)
         half = rect.width * 0.5
@@ -451,11 +464,12 @@ class Grid:
     def progress(self) -> float:
         return self.connected_count / max(1, self.size * self.size)
 
-    def draw(self, surface: pygame.Surface, board_rect: pygame.Rect, glow_phase: float) -> None:
+    def draw(self, surface: pygame.Surface, board_rect: pygame.Rect, glow_phase: float, hint_mode: bool = False) -> None:
         pygame.draw.rect(surface, (10, 37, 42), board_rect.inflate(32, 32), border_radius=28)
         self.draw_level_art(surface, board_rect, glow_phase)
         for tile in self.iter_tiles():
-            tile.draw(surface, self.tile_rect(tile, board_rect), glow_phase)
+            hint = hint_mode and tile.rotation != self.level.solution_rotations[tile.row][tile.col]
+            tile.draw(surface, self.tile_rect(tile, board_rect), glow_phase, hint)
 
     def draw_level_art(self, surface: pygame.Surface, board_rect: pygame.Rect, glow_phase: float) -> None:
         overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
@@ -520,6 +534,7 @@ class Game:
         self.success_announced = False
         self.completed_levels: set[int] = set()
         self.debug_overlay = False
+        self.hint_mode = False
 
     def run(self) -> None:
         while self.running:
@@ -587,6 +602,8 @@ class Game:
                     self.toggle_fullscreen()
                 elif event.key == pygame.K_d:
                     self.debug_overlay = not self.debug_overlay
+                elif event.key == pygame.K_h:
+                    self.hint_mode = not self.hint_mode
                 elif event.key in (pygame.K_RETURN, pygame.K_SPACE) and self.state == "title":
                     self.start_playing()
                 elif event.key == pygame.K_r and self.state == "playing":
@@ -612,11 +629,11 @@ class Game:
                         self.advance_level()
                 elif self.state == "playing" and self.grid.handle_click(event.pos, self.board_rect()):
                     self.record_click_rhythm()
-                    self.audio.play("rotate", 0.42 + self.distraction * 0.12)
+                    self.audio.play("rotate", max(0.72, 0.82 - self.distraction * 0.1))
 
     def start_playing(self) -> None:
         self.state = "playing"
-        self.audio.play_level_narration(self.level_index, 0.55)
+        self.audio.play_level_narration(self.level_index, 0.80)
 
     def record_click_rhythm(self) -> None:
         now = pygame.time.get_ticks() / 1000.0
@@ -645,13 +662,13 @@ class Game:
         self.grid.update(dt, pygame.mouse.get_pos(), self.board_rect())
         self.audio.set_peacefulness(self.grid.progress)
         if self.grid.last_new_connection:
-            self.audio.play("connect", 0.38)
+            self.audio.play("connect", 0.80)
             self.grid.last_new_connection = False
         if self.grid.complete and not self.success_announced:
             self.success_announced = True
             self.completed_levels.add(self.level_index)
-            self.audio.play("success", 0.65)
-            self.audio.play("narration", 0.55)
+            self.audio.play("success", 0.92)
+            self.audio.play("narration", 0.80)
             self.spawn_bloom(90)
         if self.grid.complete and len(self.particles) < 18 and random() < dt * 4:
             self.spawn_bloom(2)
@@ -666,7 +683,7 @@ class Game:
         self.completed_levels.add(self.level_index)
         self.level_index = (self.level_index + 1) % len(self.levels)
         self.reset_level()
-        self.audio.play_level_narration(self.level_index, 0.55)
+        self.audio.play_level_narration(self.level_index, 0.80)
 
     def draw(self) -> None:
         self.screen.fill(DEEP_TEAL)
@@ -768,7 +785,7 @@ class Game:
     def draw_game(self) -> None:
         level = self.levels[self.level_index]
         board = self.board_rect()
-        self.grid.draw(self.screen, board, self.glow_phase)
+        self.grid.draw(self.screen, board, self.glow_phase, self.hint_mode)
         self.screen.blit(self.font_big.render("Echo Garden", True, TEXT), (38, 26))
         self.screen.blit(self.font.render(f"{level.name} - {level.size}x{level.size}", True, WARM_GOLD), (44, 100))
         self.screen.blit(self.font_small.render(level.narration, True, MUTED_TEXT), (44, 134))
@@ -781,6 +798,11 @@ class Game:
         fill.width = int(progress_rect.width * self.grid.progress)
         pygame.draw.rect(self.screen, MINT, fill, border_radius=6)
         self.screen.blit(self.font_small.render("garden coherence", True, MUTED_TEXT), (progress_rect.x, progress_rect.y + 18))
+
+        if self.hint_mode and not self.grid.complete:
+            wrong_count = sum(1 for t in self.grid.iter_tiles() if t.rotation != level.solution_rotations[t.row][t.col])
+            wrong_text = self.font_small.render(f"Hint: {wrong_count} tiles misaligned", True, (220, 140, 40))
+            self.screen.blit(wrong_text, (progress_rect.x, progress_rect.y - 20))
 
         if self.grid.complete:
             panel = self.complete_overlay_rect()
@@ -812,7 +834,7 @@ def build_levels() -> list[Level]:
             starts=((1, 1),),
             sinks=((0, 1), (1, 0), (1, 2), (2, 1)),
             tiles=(("corner", "end", "corner"), ("end", "cross", "end"), ("corner", "end", "corner")),
-            rotations=((1, 1, 2), (0, 0, 2), (0, 3, 3)),
+            rotations=((2, 3, 3), (2, 1, 0), (1, 1, 0)),
             narration="Breathe... each petal returns to the center.",
             art_style="flower",
             solution_rotations=((1, 2, 2), (1, 0, 3), (0, 0, 3)),
@@ -823,7 +845,7 @@ def build_levels() -> list[Level]:
             starts=((0, 0),),
             sinks=((3, 3),),
             tiles=(("end", "corner", "corner", "end"), ("corner", "corner", "corner", "corner"), ("end", "corner", "corner", "corner"), ("corner", "end", "corner", "end")),
-            rotations=((2, 3, 1, 2), (1, 1, 3, 2), (0, 2, 1, 1), (3, 0, 2, 1)),
+            rotations=((1, 1, 2, 2), (2, 1, 1, 2), (2, 2, 1, 1), (2, 2, 2, 0)),
             narration="Trace the vine as it curls into a quiet mandala.",
             art_style="vine_mandala",
             solution_rotations=((1, 2, 0, 0), (0, 0, 2, 0), (0, 0, 0, 2), (0, 0, 0, 0)),
@@ -834,7 +856,7 @@ def build_levels() -> list[Level]:
             starts=((2, 0),),
             sinks=((0, 4), (4, 4)),
             tiles=(("end", "corner", "corner", "straight", "end"), ("corner", "end", "straight", "end", "corner"), ("end", "straight", "tee", "end", "corner"), ("corner", "end", "straight", "end", "corner"), ("end", "corner", "corner", "straight", "end")),
-            rotations=((2, 1, 2, 0, 2), (3, 0, 1, 1, 0), (0, 0, 0, 2, 1), (0, 1, 1, 0, 3), (1, 2, 3, 0, 2)),
+            rotations=((0, 3, 2, 0, 3), (1, 2, 3, 3, 2), (1, 0, 3, 0, 2), (2, 3, 3, 2, 1), (3, 2, 1, 0, 3)),
             narration="Balance both sides of the root system with patient attention.",
             art_style="root_symmetry",
             solution_rotations=((2, 1, 1, 1, 3), (3, 0, 0, 1, 0), (1, 1, 2, 2, 0), (0, 1, 0, 0, 3), (1, 0, 0, 1, 3)),
@@ -845,7 +867,7 @@ def build_levels() -> list[Level]:
             starts=((4, 0),),
             sinks=((0, 0), (0, 4), (4, 4)),
             tiles=(("end", "corner", "corner", "straight", "end"), ("straight", "corner", "straight", "corner", "straight"), ("corner", "straight", "cross", "straight", "corner"), ("corner", "end", "straight", "end", "straight"), ("end", "straight", "corner", "corner", "end")),
-            rotations=((2, 0, 2, 0, 1), (1, 2, 1, 3, 0), (1, 0, 0, 0, 1), (0, 2, 1, 2, 1), (0, 0, 0, 3, 2)),
+            rotations=((2, 2, 2, 0, 3), (3, 0, 3, 1, 2), (1, 0, 1, 0, 3), (2, 0, 3, 1, 3), (1, 0, 0, 2, 0)),
             narration="Every restored pathway adds a quiet voice to the garden chorus.",
             art_style="full_garden",
             solution_rotations=((2, 0, 1, 1, 3), (0, 2, 0, 3, 0), (0, 1, 0, 1, 2), (0, 2, 0, 3, 0), (1, 1, 3, 0, 0)),
@@ -862,7 +884,7 @@ def build_levels() -> list[Level]:
                 ("straight", "corner",   "straight", "corner",   "straight"),
                 ("end",      "straight", "tee",      "straight", "end"),
             ),
-            rotations=((3, 1, 2, 0, 2), (0, 2, 1, 3, 1), (1, 0, 0, 0, 3), (1, 0, 3, 1, 0), (2, 0, 0, 1, 0)),
+            rotations=((1, 0, 2, 0, 3), (2, 1, 3, 3, 2), (2, 0, 0, 0, 0), (2, 3, 3, 1, 2), (1, 0, 0, 0, 3)),
             narration="Let go of urgency. The still waters carry your focus to every corner.",
             art_style="vine_mandala",
             solution_rotations=((1, 1, 1, 1, 3), (0, 3, 0, 1, 0), (1, 1, 0, 1, 3), (0, 1, 0, 3, 0), (1, 1, 3, 1, 3)),
