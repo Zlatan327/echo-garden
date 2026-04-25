@@ -1,0 +1,4 @@
+__pycache__/
+*.py[cod]
+.env
+assets/sounds/*.mp3
