@@ -124,12 +124,10 @@ class AudioManager:
             pygame.mixer.music.set_volume(0.16 + 0.18 * max(0.0, min(1.0, progress)))
 
     def play_level_narration(self, level_index: int, volume: float = 0.55) -> None:
-        """Play per-level narration if available, else fall back to generic."""
+        """Play per-level narration if available. Missing audio stays silent."""
         key = f"narration_{level_index}"
         if self.enabled and key in self.sounds:
             self.play(key, volume)
-        else:
-            self.play("narration", volume)
 
     def generate_elevenlabs_placeholders(self) -> None:
         """Optional helper for later ElevenLabs SDK sound generation.
@@ -653,6 +651,7 @@ class Game:
             self.success_announced = True
             self.completed_levels.add(self.level_index)
             self.audio.play("success", 0.65)
+            self.audio.play("narration", 0.55)
             self.spawn_bloom(90)
         if self.grid.complete and len(self.particles) < 18 and random() < dt * 4:
             self.spawn_bloom(2)
@@ -667,6 +666,7 @@ class Game:
         self.completed_levels.add(self.level_index)
         self.level_index = (self.level_index + 1) % len(self.levels)
         self.reset_level()
+        self.audio.play_level_narration(self.level_index, 0.55)
 
     def draw(self) -> None:
         self.screen.fill(DEEP_TEAL)
@@ -856,15 +856,15 @@ def build_levels() -> list[Level]:
             starts=((2, 2),),
             sinks=((0, 0), (0, 4), (4, 0), (4, 4)),
             tiles=(
-                ("corner", "straight", "end",      "straight", "corner"),
-                ("straight", "corner", "straight",  "corner",   "straight"),
-                ("end",      "straight", "cross",   "straight", "end"),
-                ("straight", "corner", "straight",  "corner",   "straight"),
-                ("corner", "straight", "end",        "straight", "corner"),
+                ("end",      "straight", "tee",      "straight", "end"),
+                ("straight", "corner",   "straight", "corner",   "straight"),
+                ("end",      "straight", "cross",    "straight", "end"),
+                ("straight", "corner",   "straight", "corner",   "straight"),
+                ("end",      "straight", "tee",      "straight", "end"),
             ),
-            rotations=((3, 1, 2, 0, 2), (0, 2, 1, 3, 1), (1, 0, 0, 0, 3), (1, 0, 3, 1, 0), (1, 0, 0, 1, 0)),
+            rotations=((3, 1, 2, 0, 2), (0, 2, 1, 3, 1), (1, 0, 0, 0, 3), (1, 0, 3, 1, 0), (2, 0, 0, 1, 0)),
             narration="Let go of urgency. The still waters carry your focus to every corner.",
             art_style="vine_mandala",
-            solution_rotations=((1, 0, 0, 0, 0), (0, 3, 0, 1, 0), (2, 0, 0, 0, 0), (0, 1, 0, 3, 0), (3, 0, 0, 0, 2)),
+            solution_rotations=((1, 1, 1, 1, 3), (0, 3, 0, 1, 0), (1, 1, 0, 1, 3), (0, 1, 0, 3, 0), (1, 1, 3, 1, 3)),
         ),
     ]

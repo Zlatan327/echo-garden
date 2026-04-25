@@ -33,8 +33,6 @@ from pathlib import Path
 # Support running with PYTHONPATH=C:\EL for short-path elevenlabs install
 sys.path.insert(0, "C:/EL")
 
-import pygame
-
 from game import AudioManager
 
 
@@ -45,7 +43,6 @@ def main() -> int:
     except ImportError:
         pass  # .env loading optional
 
-    pygame.mixer.init()
     sounds_dir = Path(__file__).parent / "assets" / "sounds"
     manager = AudioManager(sounds_dir)
 
