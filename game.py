@@ -98,10 +98,19 @@ class AudioManager:
         if music.exists():
             try:
                 pygame.mixer.music.load(str(music))
-                pygame.mixer.music.set_volume(0.25)
+                pygame.mixer.music.set_volume(0.20)
                 pygame.mixer.music.play(-1)
             except pygame.error:
                 pass
+
+        # Per-level narration tracks (narration_level_0.mp3 ... narration_level_9.mp3)
+        for idx in range(10):
+            path = self.asset_dir / f"narration_level_{idx}.mp3"
+            if path.exists():
+                try:
+                    self.sounds[f"narration_{idx}"] = pygame.mixer.Sound(str(path))
+                except pygame.error:
+                    pass
 
     def play(self, name: str, volume: float = 0.55) -> None:
         if not self.enabled or name not in self.sounds:
@@ -113,6 +122,14 @@ class AudioManager:
     def set_peacefulness(self, progress: float) -> None:
         if self.enabled and pygame.mixer.music.get_busy():
             pygame.mixer.music.set_volume(0.16 + 0.18 * max(0.0, min(1.0, progress)))
+
+    def play_level_narration(self, level_index: int, volume: float = 0.55) -> None:
+        """Play per-level narration if available, else fall back to generic."""
+        key = f"narration_{level_index}"
+        if self.enabled and key in self.sounds:
+            self.play(key, volume)
+        else:
+            self.play("narration", volume)
 
     def generate_elevenlabs_placeholders(self) -> None:
         """Optional helper for later ElevenLabs SDK sound generation.
@@ -132,20 +149,63 @@ class AudioManager:
             raise RuntimeError("Install the ElevenLabs SDK first: pip install elevenlabs") from exc
 
         client = ElevenLabs(api_key=api_key)
-        prompts = {
-            "rotate_organic.mp3": "gentle wooden organic tile rotation, soft tactile click, calming",
-            "connection_chime.mp3": "soft resonant chime, warm digital garden tone, peaceful",
-            "success_bloom.mp3": "calming success bloom, airy petals, warm sparkle, serene",
-            "ambient_garden.mp3": "subtle looping ambient music, peaceful digital garden, soft pads",
-            "narration_breathe.mp3": "calm warm voice saying: Well done. A piece of your attention is restored.",
-        }
         self.asset_dir.mkdir(parents=True, exist_ok=True)
-        for filename, prompt in prompts.items():
+
+        # --- Sound effects via text-to-sound-effects ---
+        sfx_prompts: dict[str, str] = {
+            "rotate_organic.mp3": "gentle wooden organic tile rotation, soft tactile click, calming nature sound",
+            "connection_chime.mp3": "soft resonant crystal chime, warm digital garden tone, peaceful single note",
+            "success_bloom.mp3": "calming success bloom, airy flower petals, warm sparkle, serene achievement",
+            "ambient_garden.mp3": "subtle looping ambient soundscape, peaceful zen digital garden, soft wind through leaves, relaxing pads",
+        }
+        print("Generating sound effects...")
+        for filename, prompt in sfx_prompts.items():
             output_path = self.asset_dir / filename
-            audio = client.text_to_sound_effects.convert(text=prompt, duration_seconds=4.0, prompt_influence=0.45)
+            print(f"  -> {filename}")
+            audio = client.text_to_sound_effects.convert(
+                text=prompt,
+                duration_seconds=4.0,
+                prompt_influence=0.45,
+            )
             with output_path.open("wb") as file:
                 for chunk in audio:
                     file.write(chunk)
+
+        # --- Per-level narration via TTS ---
+        narration_lines: list[str] = [
+            "Welcome to Echo Garden. Breathe gently. Each petal returns to the center.",
+            "The vine remembers its path. Trace it slowly, and the mandala will reveal itself.",
+            "Roots seek balance on both sides. Hold your attention steady, like still water.",
+            "Every restored pathway adds a quiet voice to the garden chorus. Listen.",
+            "The river finds its delta. Let go of urgency. The still waters carry your focus.",
+        ]
+        print("Generating TTS narration...")
+        for idx, text in enumerate(narration_lines):
+            output_path = self.asset_dir / f"narration_level_{idx}.mp3"
+            print(f"  -> narration_level_{idx}.mp3")
+            audio_stream = client.text_to_speech.convert(
+                text=text,
+                voice_id="EXAVITQu4vr4xnSDxMaL",
+                model_id="eleven_multilingual_v2",
+                output_format="mp3_44100_128",
+            )
+            with output_path.open("wb") as file:
+                for chunk in audio_stream:
+                    file.write(chunk)
+
+        # Generic fallback narration
+        print("  -> narration_breathe.mp3")
+        fallback = client.text_to_speech.convert(
+            text="Well done. A piece of your attention is restored. The garden grows more whole.",
+            voice_id="EXAVITQu4vr4xnSDxMaL",
+            model_id="eleven_multilingual_v2",
+            output_format="mp3_44100_128",
+        )
+        with (self.asset_dir / "narration_breathe.mp3").open("wb") as file:
+            for chunk in fallback:
+                file.write(chunk)
+
+        print(f"\n+ All Echo Garden audio assets saved to: {self.asset_dir}")
 
 
 class Particle:
@@ -511,7 +571,7 @@ class Game:
         self.level_index = max(0, min(index, len(self.levels) - 1))
         self.reset_level()
         self.state = "playing"
-        self.audio.play("narration", 0.35)
+        self.audio.play_level_narration(self.level_index, 0.55)
 
     def handle_events(self) -> None:
         for event in pygame.event.get():
@@ -558,7 +618,7 @@ class Game:
 
     def start_playing(self) -> None:
         self.state = "playing"
-        self.audio.play("narration", 0.45)
+        self.audio.play_level_narration(self.level_index, 0.55)
 
     def record_click_rhythm(self) -> None:
         now = pygame.time.get_ticks() / 1000.0
@@ -646,14 +706,18 @@ class Game:
         width, height = self.screen.get_size()
         title = self.font_title.render("Echo Garden", True, TEXT)
         subtitle = self.font.render("A mindful puzzle of neural roots and focus pathways", True, MUTED_TEXT)
+        credit = self.font_small.render("Powered by ElevenLabs · Built in Zed", True, MINT)
         hint = self.font_small.render("F: fullscreen   D: debug overlay   Esc: quit", True, MUTED_TEXT)
         self.screen.blit(title, title.get_rect(center=(width // 2, height // 2 - 138)))
         self.screen.blit(subtitle, subtitle.get_rect(center=(width // 2, height // 2 - 48)))
+        self.screen.blit(credit, credit.get_rect(center=(width // 2, height // 2 - 12)))
         self.screen.blit(hint, hint.get_rect(center=(width // 2, height - 36)))
 
-        center = Vec2(width // 2, height // 2 - 220)
+        center = Vec2(width // 2, height // 2 - 224)
         for radius, color in [(62, SOFT_PURPLE), (42, MINT), (22, WARM_GOLD)]:
-            pygame.draw.circle(self.screen, color, center, radius, width=2)
+            pulse = 0.85 + 0.15 * abs(Vec2(1, 0).rotate(self.glow_phase * 40 + radius).x)
+            draw_color = tuple(min(255, int(c * pulse)) for c in color)
+            pygame.draw.circle(self.screen, draw_color, center, radius, width=2)
 
         buttons = self.title_button_rects()
         self.draw_button(buttons["continue"], "Continue Garden", primary=True)
@@ -739,7 +803,7 @@ class Game:
 
 
 def build_levels() -> list[Level]:
-    """Four compact handcrafted levels, progressing 3x3 to 5x5."""
+    """Five handcrafted levels, progressing 3x3 → 5x5."""
 
     return [
         Level(
@@ -785,5 +849,22 @@ def build_levels() -> list[Level]:
             narration="Every restored pathway adds a quiet voice to the garden chorus.",
             art_style="full_garden",
             solution_rotations=((2, 0, 1, 1, 3), (0, 2, 0, 3, 0), (0, 1, 0, 1, 2), (0, 2, 0, 3, 0), (1, 1, 3, 0, 0)),
+        ),
+        Level(
+            name="Still Waters",
+            size=5,
+            starts=((2, 2),),
+            sinks=((0, 0), (0, 4), (4, 0), (4, 4)),
+            tiles=(
+                ("corner", "straight", "end",      "straight", "corner"),
+                ("straight", "corner", "straight",  "corner",   "straight"),
+                ("end",      "straight", "cross",   "straight", "end"),
+                ("straight", "corner", "straight",  "corner",   "straight"),
+                ("corner", "straight", "end",        "straight", "corner"),
+            ),
+            rotations=((3, 1, 2, 0, 2), (0, 2, 1, 3, 1), (1, 0, 0, 0, 3), (1, 0, 3, 1, 0), (1, 0, 0, 1, 0)),
+            narration="Let go of urgency. The still waters carry your focus to every corner.",
+            art_style="vine_mandala",
+            solution_rotations=((1, 0, 0, 0, 0), (0, 3, 0, 1, 0), (2, 0, 0, 0, 0), (0, 1, 0, 3, 0), (3, 0, 0, 0, 2)),
         ),
     ]
