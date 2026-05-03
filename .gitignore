@@ -1,4 +1,7 @@
 __pycache__/
 *.py[cod]
 .env
+.venv/
+.venv*/
+.pycache_tmp/
 assets/sounds/*.mp3

@@ -1,8 +1,12 @@
 """Validate Echo Garden level data without importing Pygame.
 
 This script parses `build_levels()` directly from `game.py`, so it can run even
-before Pygame is installed. It checks initial states and searches for valid solved
-rotation states with pruning.
+before Pygame is installed. It checks that levels are not initially solved and
+that each declared solution obeys the same multi-flow rules as the game:
+
+- standard tiles mix incoming colors
+- `bridge` tiles let routes cross without mixing
+- outputs only count when their final color exactly matches the target
 
 Run:
     python validate_levels.py
@@ -18,12 +22,13 @@ from pathlib import Path
 UP, RIGHT, DOWN, LEFT = 0, 1, 2, 3
 DIRS = {UP: (0, -1), RIGHT: (1, 0), DOWN: (0, 1), LEFT: (-1, 0)}
 OPPOSITE = {UP: DOWN, RIGHT: LEFT, DOWN: UP, LEFT: RIGHT}
-TILE_LIBRARY: dict[str, set[int]] = {
-    "end": {UP},
-    "straight": {UP, DOWN},
-    "corner": {UP, RIGHT},
-    "tee": {UP, RIGHT, DOWN},
-    "cross": {UP, RIGHT, DOWN, LEFT},
+TILE_CHANNEL_LIBRARY: dict[str, tuple[tuple[int, ...], ...]] = {
+    "end": ((UP,),),
+    "straight": ((UP, DOWN),),
+    "corner": ((UP, RIGHT),),
+    "tee": ((UP, RIGHT, DOWN),),
+    "cross": ((UP, RIGHT, DOWN, LEFT),),
+    "bridge": ((UP, DOWN), (LEFT, RIGHT)),
 }
 
 
@@ -36,12 +41,18 @@ class ParsedLevel:
     sinks: tuple[tuple[int, int], ...]
     rotations: tuple[tuple[int, ...], ...]
     narration: str
+    start_colors: tuple[str, ...] = ()
+    sink_targets: tuple[tuple[str, ...], ...] = ()
     art_style: str = "garden"
     solution_rotations: tuple[tuple[int, ...], ...] | None = None
 
 
-def sides_for(kind: str, rotation: int) -> set[int]:
-    return {(side + rotation) % 4 for side in TILE_LIBRARY[kind]}
+def rotate_channels(channels: tuple[tuple[int, ...], ...], rotation: int) -> tuple[tuple[int, ...], ...]:
+    return tuple(tuple((side + rotation) % 4 for side in channel) for channel in channels)
+
+
+def channels_for(kind: str, rotation: int) -> tuple[tuple[int, ...], ...]:
+    return rotate_channels(TILE_CHANNEL_LIBRARY[kind], rotation)
 
 
 def load_levels(path: Path) -> list[ParsedLevel]:
@@ -63,33 +74,6 @@ def load_levels(path: Path) -> list[ParsedLevel]:
     return levels
 
 
-def check_state(level: ParsedLevel, rotations: tuple[tuple[int, ...], ...]) -> tuple[bool, int, int, set[tuple[int, int]]]:
-    visited: set[tuple[int, int]] = set(level.starts)
-    queue = deque(level.starts)
-    leaks = 0
-
-    while queue:
-        row, col = queue.popleft()
-        kind = level.tiles[row][col]
-        for side in sides_for(kind, rotations[row][col]):
-            dc, dr = DIRS[side]
-            nr, nc = row + dr, col + dc
-            if not (0 <= nr < level.size and 0 <= nc < level.size):
-                leaks += 1
-                continue
-            neighbor_kind = level.tiles[nr][nc]
-            neighbor_sides = sides_for(neighbor_kind, rotations[nr][nc])
-            if OPPOSITE[side] not in neighbor_sides:
-                leaks += 1
-                continue
-            if (nr, nc) not in visited:
-                visited.add((nr, nc))
-                queue.append((nr, nc))
-
-    complete = all(sink in visited for sink in level.sinks) and leaks == 0
-    return complete, len(visited), leaks, visited
-
-
 def set_rotation(rotations: tuple[tuple[int, ...], ...], row: int, col: int, value: int) -> tuple[tuple[int, ...], ...]:
     mutable = [list(line) for line in rotations]
     mutable[row][col] = value
@@ -97,15 +81,88 @@ def set_rotation(rotations: tuple[tuple[int, ...], ...], row: int, col: int, val
 
 
 def candidate_cells(level: ParsedLevel) -> list[tuple[int, int]]:
-    """Return cells worth rotating first, sorted by distance from starts/sinks."""
+    """Return cells worth rotating first, sorted by distance from sources/outputs."""
 
     anchors = list(level.starts) + list(level.sinks)
     cells = [(row, col) for row in range(level.size) for col in range(level.size)]
     return sorted(cells, key=lambda cell: min(abs(cell[0] - a[0]) + abs(cell[1] - a[1]) for a in anchors))
 
 
+def check_state(
+    level: ParsedLevel,
+    rotations: tuple[tuple[int, ...], ...],
+) -> tuple[bool, int, int, set[tuple[int, int]]]:
+    default_source = level.start_colors[0] if level.start_colors else "gold"
+    source_colors = level.start_colors or tuple(default_source for _ in level.starts)
+    sink_targets = level.sink_targets or tuple((default_source,) for _ in level.sinks)
+
+    channel_lookup: dict[tuple[int, int, int], tuple[int, ...]] = {}
+    port_lookup: dict[tuple[int, int, int], tuple[int, int, int]] = {}
+    adjacency: dict[tuple[int, int, int], set[tuple[int, int, int]]] = {}
+
+    for row in range(level.size):
+        for col in range(level.size):
+            for index, channel in enumerate(channels_for(level.tiles[row][col], rotations[row][col])):
+                node = (row, col, index)
+                channel_lookup[node] = channel
+                adjacency[node] = set()
+                for side in channel:
+                    port_lookup[(row, col, side)] = node
+
+    for node, channel in channel_lookup.items():
+        row, col, _ = node
+        for side in channel:
+            dc, dr = DIRS[side]
+            nr, nc = row + dr, col + dc
+            if not (0 <= nr < level.size and 0 <= nc < level.size):
+                continue
+            neighbor = port_lookup.get((nr, nc, OPPOSITE[side]))
+            if neighbor is not None:
+                adjacency[node].add(neighbor)
+
+    flow_sets: dict[tuple[int, int, int], set[str]] = {node: set() for node in channel_lookup}
+    queue: deque[tuple[int, int, int]] = deque()
+    for (row, col), color in zip(level.starts, source_colors):
+        for index, _ in enumerate(channels_for(level.tiles[row][col], rotations[row][col])):
+            node = (row, col, index)
+            flow_sets[node].add(color)
+            queue.append(node)
+
+    while queue:
+        node = queue.popleft()
+        for neighbor in adjacency[node]:
+            previous_size = len(flow_sets[neighbor])
+            flow_sets[neighbor].update(flow_sets[node])
+            if len(flow_sets[neighbor]) != previous_size:
+                queue.append(neighbor)
+
+    visited = {(row, col) for (row, col, _), colors in flow_sets.items() if colors}
+    leaks = 0
+    for node, channel in channel_lookup.items():
+        if not flow_sets[node]:
+            continue
+        row, col, _ = node
+        for side in channel:
+            dc, dr = DIRS[side]
+            nr, nc = row + dr, col + dc
+            neighbor = port_lookup.get((nr, nc, OPPOSITE[side])) if 0 <= nr < level.size and 0 <= nc < level.size else None
+            if neighbor is None:
+                leaks += 1
+
+    satisfied = 0
+    for (row, col), target in zip(level.sinks, sink_targets):
+        colors: set[str] = set()
+        for index, _ in enumerate(channels_for(level.tiles[row][col], rotations[row][col])):
+            colors.update(flow_sets[(row, col, index)])
+        if colors and frozenset(colors) == frozenset(target):
+            satisfied += 1
+
+    complete = satisfied == len(level.sinks) and leaks == 0
+    return complete, len(visited), leaks, visited
+
+
 def find_solution(level: ParsedLevel, max_states: int = 350_000) -> tuple[bool, int, tuple[tuple[int, ...], ...] | None]:
-    """Search rotations. Works quickly for small levels and bounded for 5x5."""
+    """Search rotations when a level does not declare its own known solution."""
 
     cells = candidate_cells(level)
     base = level.rotations
@@ -115,7 +172,7 @@ def find_solution(level: ParsedLevel, max_states: int = 350_000) -> tuple[bool, 
         nonlocal checked
         if checked >= max_states:
             return False, None
-        complete, connected, leaks, visited = check_state(level, current)
+        complete, connected, leaks, _ = check_state(level, current)
         checked += 1
         if complete:
             return True, current
@@ -123,8 +180,7 @@ def find_solution(level: ParsedLevel, max_states: int = 350_000) -> tuple[bool, 
         if index >= len(cells):
             return False, None
 
-        # Prune states that have already connected too many leak points early.
-        if leaks > 3 and connected > 1:
+        if leaks > 5 and connected > 1:
             return False, None
 
         row, col = cells[index]
@@ -154,6 +210,12 @@ def main() -> int:
     failures = 0
     for index, level in enumerate(levels, start=1):
         print(f"Level {index}: {level.name} ({level.size}x{level.size}, {level.art_style})")
+        if level.start_colors and len(level.start_colors) != len(level.starts):
+            print("  WARNING: start_colors length does not match starts")
+            failures += 1
+        if level.sink_targets and len(level.sink_targets) != len(level.sinks):
+            print("  WARNING: sink_targets length does not match sinks")
+            failures += 1
         initially_complete, connected, leaks, _ = check_state(level, level.rotations)
         print(f"  initial: complete={initially_complete}, connected={connected}, leaks={leaks}")
         if initially_complete:

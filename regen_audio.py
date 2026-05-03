@@ -17,6 +17,8 @@ sys.path.insert(0, "C:/EL")
 
 from elevenlabs.client import ElevenLabs
 
+from game import build_levels
+
 
 def main() -> None:
     api_key = os.environ["ELEVENLABS_API_KEY"]
@@ -80,21 +82,12 @@ def main() -> None:
 
     # Shorter, punchier narration lines — easier to hear and remember
     narration: list[tuple[str, str]] = [
-        ("narration_level_0.mp3",
-         "Breathe. Each petal finds its way home."),
-        ("narration_level_1.mp3",
-         "Trace the vine. The mandala is waiting."),
-        ("narration_level_2.mp3",
-         "Balance both sides. Stay patient."),
-        ("narration_level_3.mp3",
-         "Every connection adds a voice to the chorus."),
-        ("narration_level_4.mp3",
-         "Let go. The still waters know the way."),
-        ("narration_breathe.mp3",
-         "Well done. Your attention is restored."),
+        (f"narration_level_{idx}.mp3", level.narration)
+        for idx, level in enumerate(build_levels())
     ]
+    narration.append(("narration_breathe.mp3", "Well done. Your attention is restored."))
 
-    print("\n=== Generating TTS Narration (Rachel, short lines) ===")
+    print(f"\n=== Generating TTS Narration (Rachel, {len(narration) - 1} puzzle lines) ===")
     for filename, text in narration:
         out = sounds_dir / filename
         print(f"  -> {filename}  \"{text}\"")

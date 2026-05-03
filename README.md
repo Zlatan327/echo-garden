@@ -1,50 +1,46 @@
 # Echo Garden
 
-Echo Garden is a lightweight Pygame puzzle prototype included in this workspace
-for development and testing. The game uses Pygame primitives so it can run even
-without art or audio assets.
+Echo Garden is a Pygame routing puzzle about connecting color-matched sources
+and outputs, managing leaks, and solving later boards that introduce bridges
+and color mixing. The game is intentionally asset-light: it renders with
+Pygame primitives and still runs cleanly without generated audio files.
 
-Contents
-- `game.py` - core game systems, tiles, rendering and audio manager
-- `main.py` - entry point; runs the `Game` class
-- `generate_audio.py` - optional helper to generate placeholder audio assets
+## Files
 
-Quick start (Windows / PowerShell)
-1. Open PowerShell and change to the Echo Garden directory:
+- `main.py` - entry point that boots Pygame and runs the main game loop
+- `game.py` - gameplay, rendering, level data, and optional audio tooling
+- `validate_levels.py` - headless level validator that checks every declared solution
+- `generate_audio.py` - optional ElevenLabs helper for narration and sound effects
+- `regen_audio.py` - alternative ElevenLabs regeneration script with tuned prompts
 
-   cd 'C:\Users\Admin\OneDrive\Dokument\New project\_tmp_echo_garden_review'
+## Quick start
 
-2. Create and activate a virtual environment:
+```powershell
+cd 'C:\Users\Admin\OneDrive\Dokument\New project\_tmp_echo_garden_review'
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python validate_levels.py
+python main.py
+```
 
-   python -m venv .venv
-   .\.venv\Scripts\Activate.ps1
+## Controls
 
-3. Install the minimal dependency (Pygame):
+- Left click rotates clockwise
+- Right click rotates counter-clockwise
+- `Q` / `E` or left / right arrows rotate the tile under the cursor
+- `H` toggles hint mode
+- `R` resets the current puzzle
+- `F` toggles fullscreen
+- `Esc` returns to the title screen or quits from the title screen
 
-   pip install pygame
+## Audio
+Audio is optional. If you want generated voice lines and sound effects, set
+`ELEVENLABS_API_KEY` and run:
 
-4. Run the game:
+```powershell
+python generate_audio.py
+```
 
-   python main.py
-
-The game falls back to simple primitives if assets are missing. Audio files are
-optional and placed under `assets/sounds/` if you generate or provide them.
-
-Notes for repository hygiene
-- This directory previously contained a local virtual environment and compiled
-  files which should not be tracked by Git. A `.gitignore` entry was added to
-  prevent committing local venvs and `__pycache__` artifacts.
-- If you want Echo Garden to live in its own repository, consider moving this
-  folder out and initializing a fresh repo (I can help with that).
-
-Generating optional audio (ElevenLabs)
-- `generate_audio.py` contains helpers to produce placeholder `.mp3` assets using
-  the ElevenLabs SDK. You must set `ELEVENLABS_API_KEY` and install the SDK to
-  use it — the game does not call the generator automatically.
-
-License & credits
-- This folder contains prototype code and helper scripts. Add licensing or
-  attribution files as needed for redistribution.
-
-If you want me to also stage/commit any remaining uncommitted game source files
-under this folder, tell me and I'll list them and commit them on `echo-garden-work`.
+The generator writes files under `assets/sounds/`. The game will load
+`narration_level_<n>.mp3` files automatically when a level starts.
