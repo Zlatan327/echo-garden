@@ -43,4 +43,6 @@ python generate_audio.py
 ```
 
 The generator writes files under `assets/sounds/`. The game will load
-`narration_level_<n>.mp3` files automatically when a level starts.
+`narration_level_<n>.mp3` files automatically when a level starts. Optional
+effect hooks also support separate cues for linked outputs, sealed leaks,
+blocked fixed tiles, route connections, and final completion.

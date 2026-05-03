@@ -10,6 +10,9 @@ Generates in assets/sounds/:
   Sound effects (text-to-sound-effects):
     - rotate_organic.mp3        tile rotation click
     - connection_chime.mp3      route connected chime
+    - output_linked.mp3         output satisfied cue
+    - leak_sealed.mp3           leak fixed cue
+    - blocked_tile.mp3          fixed bridge / no-op cue
     - success_bloom.mp3         level complete bloom
     - ambient_garden.mp3        looping background music
 

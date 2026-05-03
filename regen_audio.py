@@ -43,6 +43,21 @@ def main() -> None:
             "Like a marimba plink. Clean attack, quick fade. Very satisfying ping.",
             2.0,
         ),
+        "output_linked.mp3": (
+            "A short bright bell tone with a tiny upward flourish, elegant and rewarding. "
+            "This should feel like a puzzle checkpoint has been reached.",
+            2.0,
+        ),
+        "leak_sealed.mp3": (
+            "A tiny soft watery click with a gentle leafy shimmer, short and clean. "
+            "This should feel like a route has just sealed shut.",
+            2.0,
+        ),
+        "blocked_tile.mp3": (
+            "A very soft muted wooden knock, subtle no-action feedback for pressing a locked tile. "
+            "Not negative, just tactile and brief.",
+            2.0,
+        ),
         # Success: ascending arpeggio + sparkle — clearly celebratory
         "success_bloom.mp3": (
             "An ascending arpeggio of three bright xylophone notes C-E-G, "

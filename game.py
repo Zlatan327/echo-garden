@@ -79,7 +79,8 @@ class AudioManager:
     """Loads optional `.mp3` placeholders and fails quietly if absent.
 
     Future ElevenLabs files expected in `assets/sounds/`:
-    `rotate_organic.mp3`, `connection_chime.mp3`, `success_bloom.mp3`,
+    `rotate_organic.mp3`, `connection_chime.mp3`, `output_linked.mp3`,
+    `leak_sealed.mp3`, `blocked_tile.mp3`, `success_bloom.mp3`,
     `ambient_garden.mp3`, and `narration_breathe.mp3`.
     """
 
@@ -87,6 +88,7 @@ class AudioManager:
         self.asset_dir = asset_dir
         self.enabled = False
         self.sounds: dict[str, pygame.mixer.Sound] = {}
+        self.cooldowns: dict[str, float] = {}
         try:
             if not pygame.mixer.get_init():
                 pygame.mixer.init()
@@ -97,6 +99,9 @@ class AudioManager:
         names = {
             "rotate": "rotate_organic.mp3",
             "connect": "connection_chime.mp3",
+            "output": "output_linked.mp3",
+            "seal": "leak_sealed.mp3",
+            "blocked": "blocked_tile.mp3",
             "success": "success_bloom.mp3",
             "narration": "narration_breathe.mp3",
         }
@@ -126,12 +131,25 @@ class AudioManager:
                 except pygame.error:
                     pass
 
-    def play(self, name: str, volume: float = 0.55) -> None:
+    def tick(self, dt: float) -> None:
+        if not self.cooldowns:
+            return
+        expired = [name for name, remaining in self.cooldowns.items() if remaining - dt <= 0]
+        for name in expired:
+            del self.cooldowns[name]
+        for name in list(self.cooldowns):
+            self.cooldowns[name] -= dt
+
+    def play(self, name: str, volume: float = 0.55, cooldown: float = 0.0) -> None:
         if not self.enabled or name not in self.sounds:
+            return
+        if cooldown > 0.0 and self.cooldowns.get(name, 0.0) > 0.0:
             return
         sound = self.sounds[name]
         sound.set_volume(max(0.0, min(1.0, volume)))
         sound.play()
+        if cooldown > 0.0:
+            self.cooldowns[name] = cooldown
 
     def set_peacefulness(self, progress: float) -> None:
         if self.enabled and pygame.mixer.music.get_busy():
@@ -168,6 +186,9 @@ class AudioManager:
         sfx_prompts: dict[str, str] = {
             "rotate_organic.mp3": "gentle wooden organic tile rotation, soft tactile click, calming nature sound",
             "connection_chime.mp3": "soft resonant crystal chime, warm digital garden tone, peaceful single note",
+            "output_linked.mp3": "bright satisfying puzzle solved partial progress chime, glassy bell with gentle upward motion, short and encouraging",
+            "leak_sealed.mp3": "soft clean sealing sound, tiny watery click and leaf shimmer, subtle but rewarding, very short",
+            "blocked_tile.mp3": "gentle muted wooden knock, soft no-action feedback for a locked puzzle tile, not harsh, very short",
             "success_bloom.mp3": "calming success bloom, airy flower petals, warm sparkle, serene achievement",
             "ambient_garden.mp3": "subtle looping ambient soundscape, peaceful zen digital garden, soft wind through leaves, relaxing pads",
         }
@@ -177,7 +198,7 @@ class AudioManager:
             print(f"  -> {filename}")
             audio = client.text_to_sound_effects.convert(
                 text=prompt,
-                duration_seconds=4.0,
+                duration_seconds=8.0 if filename == "ambient_garden.mp3" else 2.0,
                 prompt_influence=0.45,
             )
             with output_path.open("wb") as file:
@@ -804,11 +825,15 @@ class Game:
             return False
         board = self.current_board_rect()
         tile = self.grid.tile_at_point(pygame.mouse.get_pos(), board)
+        if tile is None:
+            return False
         if not self.grid.rotate_tile(tile, clockwise):
+            self.show_feedback("Bridge tiles are fixed", MUTED_TEXT, duration=0.9)
+            self.audio.play("blocked", 0.42, cooldown=0.14)
             return False
         self.show_tutorial = False
         self.move_count += 1
-        self.audio.play("rotate", 0.76)
+        self.audio.play("rotate", 0.76, cooldown=0.03)
         return True
 
     def handle_keydown(self, event: pygame.event.Event) -> None:
@@ -860,10 +885,16 @@ class Game:
             if self.complete_overlay_rect().collidepoint(pos):
                 self.advance_level()
             return
-        if self.grid.handle_click(pos, board, clockwise=clockwise):
+        tile = self.grid.tile_at_point(pos, board)
+        if tile is None:
+            return
+        if self.grid.rotate_tile(tile, clockwise=clockwise):
             self.show_tutorial = False
             self.move_count += 1
-            self.audio.play("rotate", 0.76)
+            self.audio.play("rotate", 0.76, cooldown=0.03)
+        else:
+            self.show_feedback("Bridge tiles are fixed", MUTED_TEXT, duration=0.9)
+            self.audio.play("blocked", 0.42, cooldown=0.14)
 
     def handle_events(self) -> None:
         for event in pygame.event.get():
@@ -910,6 +941,7 @@ class Game:
         self.glow_phase += dt
         self.particles = [p for p in self.particles if p.update(dt)]
         self.feedback_timer = max(0.0, self.feedback_timer - dt)
+        self.audio.tick(dt)
         if self.state != STATE_PLAYING:
             return
 
@@ -917,12 +949,14 @@ class Game:
         self.audio.set_peacefulness(self.grid.progress)
         if self.grid.connected_sinks > self.last_sink_progress:
             self.show_feedback("Output linked", WARM_GOLD)
+            self.audio.play("output", 0.66, cooldown=0.18)
         elif self.grid.leak_count < self.last_leak_count and self.move_count > 0:
             self.show_feedback("Leak sealed", MINT, duration=1.0)
+            self.audio.play("seal", 0.52, cooldown=0.16)
         self.last_sink_progress = self.grid.connected_sinks
         self.last_leak_count = self.grid.leak_count
         if self.grid.last_new_connection:
-            self.audio.play("connect", 0.80)
+            self.audio.play("connect", 0.80, cooldown=0.08)
             self.grid.last_new_connection = False
         if self.grid.complete and not self.success_announced:
             self.success_announced = True
