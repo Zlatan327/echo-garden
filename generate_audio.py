@@ -9,20 +9,19 @@ Usage:
 Generates in assets/sounds/:
   Sound effects (text-to-sound-effects):
     - rotate_organic.mp3        tile rotation click
-    - connection_chime.mp3      pipe connected chime
+    - connection_chime.mp3      route connected chime
+    - output_linked.mp3         output satisfied cue
+    - leak_sealed.mp3           leak fixed cue
+    - blocked_tile.mp3          fixed bridge / no-op cue
     - success_bloom.mp3         level complete bloom
     - ambient_garden.mp3        looping background music
 
-  TTS narration (Bella voice, eleven_multilingual_v2):
-    - narration_level_0.mp3     Petal Circuit intro
-    - narration_level_1.mp3     Vine Mandala intro
-    - narration_level_2.mp3     Root Symmetry intro
-    - narration_level_3.mp3     Garden Chorus intro
-    - narration_level_4.mp3     Still Waters intro
-    - narration_breathe.mp3     generic completion line
+  TTS narration (one file per puzzle, plus a generic completion line):
+    - narration_level_<n>.mp3
+    - narration_breathe.mp3
 
 The game loads all files automatically on startup.
-No API key is needed to play - audio gracefully degrades to silence.
+No API key is needed to play; audio gracefully degrades to silence.
 """
 
 from __future__ import annotations
@@ -33,7 +32,7 @@ from pathlib import Path
 # Support running with PYTHONPATH=C:\EL for short-path elevenlabs install
 sys.path.insert(0, "C:/EL")
 
-from game import AudioManager
+from game import AudioManager, build_levels
 
 
 def main() -> int:
@@ -48,6 +47,7 @@ def main() -> int:
 
     print("=== Echo Garden Audio Generator ===")
     print("Using ElevenLabs APIs to create immersive garden sounds and narration.\n")
+    print(f"Configured to generate narration for {len(build_levels())} puzzles.\n")
 
     manager.generate_elevenlabs_placeholders()
     return 0
